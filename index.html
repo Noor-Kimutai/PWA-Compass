@@ -241,6 +241,13 @@
         RESET ENGINE STATE
       </button>
 
+      <!-- Real hardware diagnostics -->
+      <div class="mt-4 pt-4 border-t border-white/10 space-y-1 text-[10px] text-white/40 font-mono tracking-wider">
+        <div>// HARDWARE SENSOR DIAGNOSTICS:</div>
+        <div>GPS STATUS: <span id="diag-gps" class="text-white">NOT ACTIVE</span></div>
+        <div>COMPASS STATUS: <span id="diag-compass" class="text-white">NOT ACTIVE</span></div>
+      </div>
+
     </div>
   </footer>
 
@@ -509,22 +516,36 @@
     function startHardwareTracking() {
       // Watch Geolocation API
       if ('geolocation' in navigator) {
+        const diagGps = document.getElementById('diag-gps');
+        if (diagGps) diagGps.textContent = "WAITING FOR SIGNAL...";
         gpsWatchId = navigator.geolocation.watchPosition(
           (pos) => {
             state.realLat = pos.coords.latitude;
             state.realLng = pos.coords.longitude;
+            if (diagGps) {
+              diagGps.textContent = `ACTIVE (${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)})`;
+            }
             if (!state.useMock) {
               render();
             }
           },
           (err) => {
             console.error("GPS Watch Error:", err);
+            if (diagGps) {
+              diagGps.textContent = `ERROR: ${err.message.toUpperCase()}`;
+            }
           },
           { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 }
         );
+      } else {
+        const diagGps = document.getElementById('diag-gps');
+        if (diagGps) diagGps.textContent = "NOT SUPPORTED";
       }
 
       // Compass Sensor Listeners
+      const diagCompass = document.getElementById('diag-compass');
+      if (diagCompass) diagCompass.textContent = "WAITING FOR SENSOR...";
+
       const handleOrientation = (e) => {
         let heading = null;
         if (e.webkitCompassHeading !== undefined) {
@@ -532,17 +553,27 @@
         } else if (e.alpha !== null) {
           heading = (360 - e.alpha) % 360;
         }
-
+        
         if (heading !== null) {
           state.realHeading = heading;
+          if (diagCompass) {
+            diagCompass.textContent = `ACTIVE (HEADING: ${Math.round(heading)}°)`;
+          }
           if (!state.useMock) {
             render();
           }
         }
       };
 
-      window.addEventListener('deviceorientationabsolute', handleOrientation, true);
-      window.addEventListener('deviceorientation', handleOrientation, true);
+      if ('ondeviceorientationabsolute' in window) {
+        window.addEventListener('deviceorientationabsolute', handleOrientation, true);
+        if (diagCompass) diagCompass.textContent = "LISTENING (ABSOLUTE)...";
+      } else if ('ondeviceorientation' in window) {
+        window.addEventListener('deviceorientation', handleOrientation, true);
+        if (diagCompass) diagCompass.textContent = "LISTENING (RELATIVE)...";
+      } else {
+        if (diagCompass) diagCompass.textContent = "NOT SUPPORTED";
+      }
     }
 
     // STATE LOCALSTORAGE LOGIC
