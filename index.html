@@ -79,6 +79,17 @@
 
 <body class="h-full font-sans overflow-hidden flex flex-col justify-between">
 
+  <!-- PERMISSION MODAL OVERLAY -->
+  <div id="permission-overlay" class="fixed inset-0 bg-black z-[100] flex flex-col items-center justify-center p-6 text-center space-y-8 hidden">
+    <h2 class="text-xl font-bold tracking-widest uppercase font-sans">SENSOR ACCESS REQUIRED</h2>
+    <p class="text-xs text-white/50 max-w-xs uppercase leading-relaxed font-mono">
+      THIS URBAN ADVENTURE APP REQUIRES REAL-TIME GPS LOCATION AND DEVICE COMPASS SENSORS TO GUIDE YOU TO DESTINATIONS.
+    </p>
+    <button onclick="grantAllPermissions()" class="bg-white text-black font-bold py-4 px-8 tracking-widest text-xs uppercase transition-all duration-200 active:scale-95 cursor-pointer">
+      GRANT SENSOR ACCESS
+    </button>
+  </div>
+
   <!-- Core App Container -->
   <main class="flex-1 flex flex-col items-center justify-center px-6 w-full max-w-md mx-auto py-12 relative">
 
@@ -165,10 +176,20 @@
         CONGRATULATIONS. ALL TARGETS ACQUIRED.
       </div>
 
+      <!-- Close Button (Takes you back to the seed phrase page) -->
+      <div class="mt-6 w-full max-w-xs px-4">
+        <button 
+          onclick="lockEngine()" 
+          class="w-full border border-white text-white font-bold py-4 tracking-widest text-center uppercase transition-all duration-200 active:scale-95 hover:bg-white hover:text-black font-sans text-xs cursor-pointer"
+        >
+          CLOSE NAVIGATION
+        </button>
+      </div>
+
       <!-- Secure Engine Return Link (Absolute bottom of the view screen) -->
-      <div class="mt-8">
+      <div class="mt-6">
         <a onclick="lockEngine()"
-          class="text-white/40 hover:text-white font-mono text-[10px] tracking-widest uppercase cursor-pointer select-none transition-colors border-b border-white/0 hover:border-white/20 pb-1">
+          class="text-white/20 hover:text-white font-mono text-[10px] tracking-widest uppercase cursor-pointer select-none transition-colors border-b border-white/0 hover:border-white/20 pb-1">
           [ SECURE ENGINE ]
         </a>
       </div>
@@ -484,25 +505,63 @@
 
     // HARDWARE INTEGRATION SENSOR LISTENERS
     function initSensors() {
-      // 1. Check iOS Webkit Permissions Banner
-      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-        document.getElementById('ios-sensor-banner').classList.remove('hidden');
-      } else {
+      // Check if permissions have already been requested in the past
+      if (localStorage.getItem('permissions_requested') === 'true') {
         startHardwareTracking();
+      } else {
+        // Show permission overlay modal
+        document.getElementById('permission-overlay').classList.remove('hidden');
       }
     }
 
-    function requestIOSPermissions() {
-      DeviceOrientationEvent.requestPermission()
-        .then(response => {
-          if (response === 'granted') {
-            document.getElementById('ios-sensor-banner').classList.add('hidden');
-            startHardwareTracking();
-          } else {
-            alert('Sensor permissions denied. Check Developer Utilities panel.');
-          }
-        })
-        .catch(console.error);
+    function grantAllPermissions() {
+      // 1. Request Geolocation Permission first
+      if ('geolocation' in navigator) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            state.realLat = pos.coords.latitude;
+            state.realLng = pos.coords.longitude;
+            
+            // Next, check iOS DeviceOrientation permission
+            handleOrientationPermissionFlow();
+          },
+          (err) => {
+            console.warn("GPS Permission error or denied:", err);
+            // Fallback and try orientation permission anyway
+            handleOrientationPermissionFlow();
+          },
+          { enableHighAccuracy: true, timeout: 5000 }
+        );
+      } else {
+        handleOrientationPermissionFlow();
+      }
+    }
+
+    function handleOrientationPermissionFlow() {
+      // Check if iOS DeviceOrientation request is required
+      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        DeviceOrientationEvent.requestPermission()
+          .then(response => {
+            if (response === 'granted') {
+              console.log("DeviceOrientation permission granted.");
+            } else {
+              console.warn("DeviceOrientation permission denied.");
+            }
+            completePermissionFlow();
+          })
+          .catch(err => {
+            console.error("DeviceOrientation permission error:", err);
+            completePermissionFlow();
+          });
+      } else {
+        completePermissionFlow();
+      }
+    }
+
+    function completePermissionFlow() {
+      localStorage.setItem('permissions_requested', 'true');
+      document.getElementById('permission-overlay').classList.add('hidden');
+      startHardwareTracking();
     }
 
     function startHardwareTracking() {
@@ -545,7 +604,7 @@
         } else if (e.alpha !== null) {
           heading = (360 - e.alpha) % 360;
         }
-        
+
         if (heading !== null) {
           state.realHeading = heading;
           if (diagCompass) {
@@ -617,6 +676,8 @@
         state.playerLng = 35.2650;
         state.deviceHeading = 0;
         userTypedDraft = "";
+        
+        localStorage.removeItem('permissions_requested');
 
         document.getElementById('seed-phrase-input').value = "";
         document.getElementById('mock-sensors-toggle').checked = false;
