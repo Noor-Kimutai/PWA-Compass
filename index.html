@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>SCAVENGER HUNT COMPASS</title>
+
+  <!-- Google Fonts: Outfit (Geometric modern Sans) & Space Grotesk (Retro Tech Mono) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;700;900&family=Space+Grotesk:wght@400;700&display=swap"
+    rel="stylesheet">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Outfit', 'Inter', 'sans-serif'],
+            mono: ['Space Grotesk', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- PWA Inline Manifest -->
+  <link rel="manifest"
+    href='data:application/manifest+json,{"name":"Scavenger Hunt Compass","short_name":"Compass","start_url":".","display":"standalone","background_color":"#000000","theme_color":"#000000","orientation":"portrait","icons":[{"src":"data:image/svg+xml;utf8,<svg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27><rect width=%27100%27 height=%27100%27 fill=%27black%27/><polygon points=%2750,10 90,85 50,70 10,85%27 fill=%27white%27/></svg>","sizes":"512x512","type":"image/svg+xml"}]}'>
+
+  <style>
+    /* Force absolute pure black and stark white styling */
+    body {
+      background-color: #000000;
+      color: #FFFFFF;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    /* Keyframes for the invalid code flashing animation */
+    @keyframes flash-red {
+
+      0%,
+      100% {
+        border-color: #FFFFFF;
+      }
+
+      50% {
+        border-color: #FF0000;
+      }
+    }
+
+    .flash-border-red {
+      animation: flash-red 0.3s ease-in-out 3;
+    }
+
+    /* Elegant bounce transition for the compass needle */
+    #compass-needle {
+      transition: transform 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    }
+
+    /* Scrollbar styling for developer panel */
+    ::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #FFFFFF;
+    }
+  </style>
+</head>
+
+<body class="h-full font-sans overflow-hidden flex flex-col justify-between">
+
+  <!-- Core App Container -->
+  <main class="flex-1 flex flex-col items-center justify-center px-6 w-full max-w-md mx-auto py-12 relative">
+
+    <!-- Global Status Line (Top) -->
+    <header class="absolute top-6 left-0 right-0 text-center space-y-1">
+      <h1 class="text-white/40 tracking-[0.3em] font-mono text-[10px] uppercase">SCAVENGER HUNT</h1>
+      <div id="status-line" class="text-white font-bold tracking-[0.15em] text-xs uppercase">
+        ACTIVE: WAYPOINT UNLOCK
+      </div>
+    </header>
+
+    <!-- SCREEN 1: THE UNLOCK GATE -->
+    <section id="screen-gate" class="w-full flex flex-col justify-center space-y-8 flex-1">
+
+      <!-- Geofence Status Information -->
+      <div class="space-y-2 text-center">
+        <div id="geofence-status" class="font-mono text-xs uppercase tracking-wider text-white/50">
+          CALCULATING POSITION...
+        </div>
+        <div id="geofence-prompt" class="text-sm font-bold tracking-wide uppercase text-white/90 min-h-[20px]">
+          <!-- Dynamic prompt text -->
+        </div>
+      </div>
+
+      <!-- Seed Phrase Input Container -->
+      <div class="relative w-full">
+        <label class="block font-mono text-[10px] uppercase text-white/40 mb-2 tracking-wider">
+          [ ENTER 12-WORD SEED PHRASE ]
+        </label>
+
+        <textarea id="seed-phrase-input"
+          class="w-full bg-black border-4 border-white text-white font-mono text-sm tracking-widest p-4 uppercase focus:outline-none focus:ring-0 resize-none transition-opacity duration-300"
+          rows="4" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false"
+          placeholder="SOLAR FOCUS WAVE CRISP..."></textarea>
+
+        <!-- Red Contextual Error Alert -->
+        <div id="error-message"
+          class="hidden mt-2 font-mono text-xs text-[#FF0000] leading-relaxed uppercase tracking-wider transition-opacity duration-200">
+          THE NEEDLE DOESN'T BUDGE. THAT KEY DOES NOT FIT THIS LOCK.
+        </div>
+      </div>
+
+      <!-- Unlock Action Button -->
+      <button id="unlock-btn" onclick="attemptUnlock()"
+        class="w-full bg-white text-black font-bold py-4 tracking-widest text-center uppercase transition-all duration-200 active:scale-95 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed select-none font-sans">
+        UNLOCK
+      </button>
+
+      <!-- iOS Sensor Activation Prompt -->
+      <div id="ios-sensor-banner" class="hidden text-center">
+        <button onclick="requestIOSPermissions()"
+          class="border border-white/40 text-white/60 hover:text-white hover:border-white font-mono text-[10px] py-2 px-4 uppercase tracking-widest transition-all">
+          [ ENABLE DEVICE SENSORS ]
+        </button>
+      </div>
+
+    </section>
+
+    <!-- SCREEN 2: THE MINIMALIST COMPASS PAGE -->
+    <section id="screen-compass" class="w-full flex-col justify-between items-center flex-1 pt-12 hidden">
+
+      <!-- Compass Graphic Container (Center) -->
+      <div class="flex-1 flex items-center justify-center">
+        <!-- Stark white mechanical compass pointer -->
+        <svg id="compass-needle" viewBox="0 0 200 200" class="w-64 h-64 select-none pointer-events-none">
+          <!-- Left Half (Filled White) -->
+          <polygon points="100,20 100,135 45,175" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="8"
+            stroke-linejoin="miter" />
+          <!-- Right Half (Outlined White with Black Fill) -->
+          <polygon points="100,20 155,175 100,135" fill="#000000" stroke="#FFFFFF" stroke-width="8"
+            stroke-linejoin="miter" />
+        </svg>
+      </div>
+
+      <!-- Distance Readout (Bottom) -->
+      <div class="text-center mt-6">
+        <div id="distance-readout" class="text-6xl font-black tracking-tight text-white font-sans">
+          ---
+        </div>
+      </div>
+
+      <!-- Victory Banner (Hidden by default, shown at final waypoint) -->
+      <div id="victory-banner" class="hidden text-center py-4 text-white font-bold tracking-widest text-sm uppercase">
+        CONGRATULATIONS. ALL TARGETS ACQUIRED.
+      </div>
+
+      <!-- Secure Engine Return Link (Absolute bottom of the view screen) -->
+      <div class="mt-8">
+        <a onclick="lockEngine()"
+          class="text-white/40 hover:text-white font-mono text-[10px] tracking-widest uppercase cursor-pointer select-none transition-colors border-b border-white/0 hover:border-white/20 pb-1">
+          [ SECURE ENGINE ]
+        </a>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- DEVELOPER UTILITIES PANEL (Absolute bottom collapse/expand) -->
+  <footer class="border-t border-white/20 bg-black w-full select-none z-50">
+
+    <!-- Collapsible Bar Toggle Header -->
+    <button onclick="toggleDevPanel()"
+      class="w-full text-left py-3 px-6 flex justify-between items-center text-white/40 hover:text-white text-[10px] font-mono tracking-[0.2em] transition-colors">
+      <span>// DEV UTILITIES</span>
+      <span id="dev-toggle-icon">[ + ]</span>
+    </button>
+
+    <!-- Dev Dashboard Body Content -->
+    <div id="dev-panel-content"
+      class="hidden p-6 space-y-5 font-mono text-xs text-white border-t border-white/10 max-h-80 overflow-y-auto">
+
+      <!-- Mock Sensor Toggle Switch -->
+      <div class="flex items-center justify-between pb-2 border-b border-white/5">
+        <span>ACTIVATE MOCK SENSORS</span>
+        <label class="relative inline-flex items-center cursor-pointer">
+          <input type="checkbox" id="mock-sensors-toggle" onchange="toggleMockSensors()" class="sr-only peer">
+          <div
+            class="w-10 h-5 bg-black border border-white/40 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white/40 after:border-white/40 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-white peer-checked:after:bg-black peer-checked:after:border-black peer-checked:border-white">
+          </div>
+        </label>
+      </div>
+
+      <!-- Mock Compass Slider -->
+      <div class="space-y-2">
+        <div class="flex justify-between text-[10px] text-white/50 tracking-wider">
+          <span>MOCK DEVICE HEADING</span>
+          <span id="mock-heading-value">0°</span>
+        </div>
+        <input type="range" id="mock-heading-slider" min="0" max="359" value="0" oninput="updateMockHeading(this.value)"
+          class="w-full accent-white bg-black border border-white/20 h-1 outline-none cursor-pointer" disabled>
+      </div>
+
+      <!-- Mock Position Inputs -->
+      <div class="grid grid-cols-2 gap-4">
+        <div class="space-y-1">
+          <label class="text-[10px] text-white/50 tracking-wider">MOCK PLAYER LAT</label>
+          <input type="number" id="mock-lat" step="0.0001" value="0.5180"
+            class="w-full bg-black border border-white/20 focus:border-white text-white p-2 text-xs focus:outline-none uppercase font-mono"
+            disabled>
+        </div>
+        <div class="space-y-1">
+          <label class="text-[10px] text-white/50 tracking-wider">MOCK PLAYER LNG</label>
+          <input type="number" id="mock-lng" step="0.0001" value="35.2650"
+            class="w-full bg-black border border-white/20 focus:border-white text-white p-2 text-xs focus:outline-none uppercase font-mono"
+            disabled>
+        </div>
+      </div>
+
+      <!-- Position Update Apply Button -->
+      <button id="apply-mock-pos-btn" onclick="applyMockCoords()"
+        class="w-full border border-white/40 text-white font-bold py-2 tracking-widest text-center uppercase hover:bg-white hover:text-black transition-all text-[10px]"
+        disabled>
+        UPDATE POSITION
+      </button>
+
+      <!-- System Reset Button -->
+      <button onclick="resetGame()"
+        class="w-full border border-[#FF0000] text-[#FF0000] py-2 tracking-widest text-center uppercase hover:bg-[#FF0000] hover:text-black transition-all text-[10px]">
+        RESET ENGINE STATE
+      </button>
+
+    </div>
+  </footer>
+
+  <script>
+    // HARDCODED LOCAL LOOKUP WAYPOINT DATABASE
+    const WAYPOINTS = [
+      {
+        name: "START GATE",
+        lat: 0.5142,
+        lng: 35.2697,
+        key: "START GATE" // Standard initial state target
+      },
+      {
+        name: "WAYPOINT 1",
+        lat: 0.5212,
+        lng: 35.2601,
+        key: "ALPHA BRAVO CHARLIE DELTA ECHO FOXTROT GOLF HOTEL INDIA JULIET KILO LIMA"
+      },
+      {
+        name: "WAYPOINT 2",
+        lat: 0.5115,
+        lng: 35.2814,
+        key: "ONE TWO THREE FOUR FIVE SIX SEVEN EIGHT NINE TEN ELEVEN TWELVE"
+      }
+    ];
+
+    // STATE MANAGEMENT OBJECT
+    const state = {
+      currentWaypointIndex: 0,
+      unlocked: false,
+      useMock: false,
+
+      // Default initial mock locations (Zion Mall is target at index 0)
+      playerLat: 0.5180, // Start ~665m away
+      playerLng: 35.2650,
+      deviceHeading: 0,
+
+      // Cache system properties
+      realLat: null,
+      realLng: null,
+      realHeading: null,
+    };
+
+    // Keep track of user's keyboard drafts before geofence updates lock/unlock the textarea
+    let userTypedDraft = "";
+    let lastRotation = 0; // Shortest-path rotation helper
+    let gpsWatchId = null;
+
+    // BASELINE MATHEMATICAL EQUATIONS
+
+    // 1. Distance Equation (Haversine Formula)
+    function calculateDistance(lat1, lon1, lat2, lon2) {
+      const R = 6371000; // Earth radius in meters
+      const phi1 = lat1 * Math.PI / 180;
+      const phi2 = lat2 * Math.PI / 180;
+      const deltaPhi = (lat2 - lat1) * Math.PI / 180;
+      const deltaLambda = (lon2 - lon1) * Math.PI / 180;
+
+      const a = Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+        Math.cos(phi1) * Math.cos(phi2) *
+        Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+
+      return 2 * R * Math.asin(Math.sqrt(a));
+    }
+
+    // 2. Target Azimuth Equation (Bearing Formula)
+    function calculateBearing(lat1, lon1, lat2, lon2) {
+      const phi1 = lat1 * Math.PI / 180;
+      const phi2 = lat2 * Math.PI / 180;
+      const deltaLambda = (lon2 - lon1) * Math.PI / 180;
+
+      const y = Math.sin(deltaLambda) * Math.cos(phi2);
+      const x = Math.cos(phi1) * Math.sin(phi2) -
+        Math.sin(phi1) * Math.cos(phi2) * Math.cos(deltaLambda);
+
+      const theta = Math.atan2(y, x) * 180 / Math.PI;
+      return (theta + 360) % 360;
+    }
+
+    // 3. Compass Needle Rotation Angle Equation
+    function updateNeedleRotation(targetBearing, currentHeading) {
+      const targetAngle = (targetBearing - currentHeading + 360) % 360;
+
+      // Implement smooth shortest-path wrap around rotation
+      let normalizedCurrent = (lastRotation % 360 + 360) % 360;
+      let diff = targetAngle - normalizedCurrent;
+
+      if (diff > 180) {
+        diff -= 360;
+      } else if (diff < -180) {
+        diff += 360;
+      }
+
+      lastRotation += diff;
+      const el = document.getElementById('compass-needle');
+      if (el) {
+        el.style.transform = `rotate(${lastRotation}deg)`;
+      }
+    }
+
+    // CORE UI UPDATE LOOP
+    function render() {
+      const activeWaypoint = WAYPOINTS[state.currentWaypointIndex];
+      const currentLat = state.useMock ? state.playerLat : (state.realLat ?? state.playerLat);
+      const currentLng = state.useMock ? state.playerLng : (state.realLng ?? state.playerLng);
+      const currentHeading = state.useMock ? state.deviceHeading : (state.realHeading ?? state.deviceHeading);
+
+      // Calculate relative parameters
+      const distance = calculateDistance(currentLat, currentLng, activeWaypoint.lat, activeWaypoint.lng);
+      const bearing = calculateBearing(currentLat, currentLng, activeWaypoint.lat, activeWaypoint.lng);
+
+      // Handle Screen Routing Views
+      const screenGate = document.getElementById('screen-gate');
+      const screenCompass = document.getElementById('screen-compass');
+      const statusLine = document.getElementById('status-line');
+
+      if (state.unlocked) {
+        screenGate.classList.add('hidden');
+        screenCompass.classList.remove('hidden');
+        screenCompass.classList.add('flex');
+        statusLine.textContent = `ACTIVE: WAYPOINT ${state.currentWaypointIndex} NAVIGATION`;
+
+        // Update Screen 2 Values
+        const readout = document.getElementById('distance-readout');
+        const victory = document.getElementById('victory-banner');
+
+        // Output distance formatting
+        if (distance < 1000) {
+          readout.textContent = `${Math.round(distance)}m`;
+        } else {
+          readout.textContent = `${(distance / 1000).toFixed(2)}km`;
+        }
+
+        // Rotate Pointer
+        updateNeedleRotation(bearing, currentHeading);
+
+        // Victory State trigger
+        if (state.currentWaypointIndex === WAYPOINTS.length - 1 && distance <= 15) {
+          victory.classList.remove('hidden');
+        } else {
+          victory.classList.add('hidden');
+        }
+      } else {
+        screenGate.classList.remove('hidden');
+        screenCompass.classList.add('hidden');
+        screenCompass.classList.remove('flex');
+        statusLine.textContent = "ACTIVE: WAYPOINT UNLOCK";
+
+        // Update Screen 1 Geofencing Layout States
+        const textarea = document.getElementById('seed-phrase-input');
+        const statusText = document.getElementById('geofence-status');
+        const promptText = document.getElementById('geofence-prompt');
+        const unlockBtn = document.getElementById('unlock-btn');
+
+        if (distance > 15) {
+          // Locked State
+          if (!textarea.disabled) {
+            userTypedDraft = textarea.value; // Store user typed work
+          }
+          textarea.disabled = true;
+          textarea.value = "KEEP WALKING. YOU ARE TOO FAR TO SPEAK TO THIS CHARACTER.";
+          textarea.classList.add('opacity-40');
+          textarea.classList.remove('border-white');
+          textarea.classList.add('border-white/20');
+
+          unlockBtn.disabled = true;
+
+          statusText.textContent = `STATUS: LOCKED (${Math.round(distance)}m AWAY)`;
+          promptText.textContent = "";
+        } else {
+          // Unlocked State
+          if (textarea.disabled) {
+            textarea.disabled = false;
+            textarea.value = userTypedDraft; // Restore user typed work
+          }
+          textarea.classList.remove('opacity-40', 'border-white/20');
+          textarea.classList.add('border-white');
+
+          unlockBtn.disabled = false;
+
+          statusText.textContent = "STATUS: UNLOCKED";
+          promptText.textContent = "ARRIVED! FIND THE SECRET CODE ON-SITE TO UNLOCK THE NEXT LEG.";
+        }
+      }
+    }
+
+    // GAME PLAY ACTIONS
+    function attemptUnlock() {
+      const textarea = document.getElementById('seed-phrase-input');
+      const errAlert = document.getElementById('error-message');
+
+      // Sanitization: case-insensitive match, compressing extra whitespaces
+      const rawText = textarea.value;
+      const sanitized = rawText.replace(/\s+/g, ' ').trim().toUpperCase();
+
+      // Determine the next waypoint target to match
+      const nextWaypointIndex = state.currentWaypointIndex + 1;
+
+      if (nextWaypointIndex < WAYPOINTS.length) {
+        const nextTarget = WAYPOINTS[nextWaypointIndex];
+        if (sanitized === nextTarget.key.toUpperCase()) {
+          // Clean state and transition
+          errAlert.classList.add('hidden');
+          textarea.classList.remove('border-red-600');
+          textarea.classList.add('border-white');
+
+          state.currentWaypointIndex = nextWaypointIndex;
+          state.unlocked = true;
+          userTypedDraft = "";
+          textarea.value = "";
+
+          saveState();
+          render();
+        } else {
+          // Flash Border Red & Display contextual warning
+          errAlert.classList.remove('hidden');
+          textarea.classList.remove('border-white');
+          textarea.classList.add('border-red-600', 'flash-border-red');
+
+          // Trigger Haptic feedback if available
+          if (navigator.vibrate) {
+            navigator.vibrate([100, 50, 100]);
+          }
+
+          setTimeout(() => {
+            textarea.classList.remove('flash-border-red');
+          }, 900);
+        }
+      } else {
+        // Edge case: no more waypoints
+        errAlert.textContent = "THE GAME IS COMPLETED. ENGINE DECOMMISSIONED.";
+        errAlert.classList.remove('hidden');
+      }
+    }
+
+    // Lock the application manually
+    function lockEngine() {
+      state.unlocked = false;
+      saveState();
+      render();
+    }
+
+    // HARDWARE INTEGRATION SENSOR LISTENERS
+    function initSensors() {
+      // 1. Check iOS Webkit Permissions Banner
+      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        document.getElementById('ios-sensor-banner').classList.remove('hidden');
+      } else {
+        startHardwareTracking();
+      }
+    }
+
+    function requestIOSPermissions() {
+      DeviceOrientationEvent.requestPermission()
+        .then(response => {
+          if (response === 'granted') {
+            document.getElementById('ios-sensor-banner').classList.add('hidden');
+            startHardwareTracking();
+          } else {
+            alert('Sensor permissions denied. Check Developer Utilities panel.');
+          }
+        })
+        .catch(console.error);
+    }
+
+    function startHardwareTracking() {
+      // Watch Geolocation API
+      if ('geolocation' in navigator) {
+        gpsWatchId = navigator.geolocation.watchPosition(
+          (pos) => {
+            state.realLat = pos.coords.latitude;
+            state.realLng = pos.coords.longitude;
+            if (!state.useMock) {
+              render();
+            }
+          },
+          (err) => {
+            console.error("GPS Watch Error:", err);
+          },
+          { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 }
+        );
+      }
+
+      // Compass Sensor Listeners
+      const handleOrientation = (e) => {
+        let heading = null;
+        if (e.webkitCompassHeading !== undefined) {
+          heading = e.webkitCompassHeading;
+        } else if (e.alpha !== null) {
+          heading = (360 - e.alpha) % 360;
+        }
+
+        if (heading !== null) {
+          state.realHeading = heading;
+          if (!state.useMock) {
+            render();
+          }
+        }
+      };
+
+      window.addEventListener('deviceorientationabsolute', handleOrientation, true);
+      window.addEventListener('deviceorientation', handleOrientation, true);
+    }
+
+    // STATE LOCALSTORAGE LOGIC
+    function loadState() {
+      const raw = localStorage.getItem('scavenger_compass_state');
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          state.currentWaypointIndex = parsed.currentWaypointIndex ?? 0;
+          state.unlocked = parsed.unlocked ?? false;
+          state.useMock = parsed.useMock ?? false;
+          state.playerLat = parsed.playerLat ?? 0.5180;
+          state.playerLng = parsed.playerLng ?? 35.2650;
+          state.deviceHeading = parsed.deviceHeading ?? 0;
+
+          // Hydrate Dev UI Controls
+          document.getElementById('mock-sensors-toggle').checked = state.useMock;
+          document.getElementById('mock-heading-slider').value = state.deviceHeading;
+          document.getElementById('mock-heading-value').textContent = `${state.deviceHeading}°`;
+          document.getElementById('mock-lat').value = state.playerLat;
+          document.getElementById('mock-lng').value = state.playerLng;
+
+          toggleMockFormElements(state.useMock);
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    }
+
+    // Save current game state
+    function saveState() {
+      localStorage.setItem('scavenger_compass_state', JSON.stringify({
+        currentWaypointIndex: state.currentWaypointIndex,
+        unlocked: state.unlocked,
+        useMock: state.useMock,
+        playerLat: state.playerLat,
+        playerLng: state.playerLng,
+        deviceHeading: state.deviceHeading
+      }));
+    }
+
+    // Reset progress helper
+    function resetGame() {
+      if (confirm("Reset current game engine progress and return to START GATE?")) {
+        state.currentWaypointIndex = 0;
+        state.unlocked = false;
+        state.useMock = false;
+        state.playerLat = 0.5180;
+        state.playerLng = 35.2650;
+        state.deviceHeading = 0;
+        userTypedDraft = "";
+
+        document.getElementById('seed-phrase-input').value = "";
+        document.getElementById('mock-sensors-toggle').checked = false;
+        document.getElementById('mock-heading-slider').value = 0;
+        document.getElementById('mock-heading-value').textContent = "0°";
+        document.getElementById('mock-lat').value = 0.5180;
+        document.getElementById('mock-lng').value = 35.2650;
+        document.getElementById('error-message').classList.add('hidden');
+
+        toggleMockFormElements(false);
+        saveState();
+        render();
+      }
+    }
+
+    // DEVELOPER UTILITIES CODE
+    function toggleDevPanel() {
+      const content = document.getElementById('dev-panel-content');
+      const icon = document.getElementById('dev-toggle-icon');
+      if (content.classList.contains('hidden')) {
+        content.classList.remove('hidden');
+        icon.textContent = "[ - ]";
+      } else {
+        content.classList.add('hidden');
+        icon.textContent = "[ + ]";
+      }
+    }
+
+    function toggleMockSensors() {
+      const active = document.getElementById('mock-sensors-toggle').checked;
+      state.useMock = active;
+      toggleMockFormElements(active);
+      saveState();
+      render();
+    }
+
+    function toggleMockFormElements(active) {
+      document.getElementById('mock-heading-slider').disabled = !active;
+      document.getElementById('mock-lat').disabled = !active;
+      document.getElementById('mock-lng').disabled = !active;
+      document.getElementById('apply-mock-pos-btn').disabled = !active;
+    }
+
+    function updateMockHeading(val) {
+      state.deviceHeading = parseInt(val, 10);
+      document.getElementById('mock-heading-value').textContent = `${val}°`;
+      saveState();
+      render();
+    }
+
+    function applyMockCoords() {
+      const latVal = parseFloat(document.getElementById('mock-lat').value);
+      const lngVal = parseFloat(document.getElementById('mock-lng').value);
+
+      if (!isNaN(latVal) && !isNaN(lngVal)) {
+        state.playerLat = latVal;
+        state.playerLng = lngVal;
+        saveState();
+        render();
+      }
+    }
+
+    // Synchronize direct keystrokes to prevent browser mismatch
+    document.getElementById('seed-phrase-input').addEventListener('input', (e) => {
+      e.target.value = e.target.value.toUpperCase();
+    });
+
+    // PWA COMPACT SERVICE WORKER REGISTRATION BLOCK
+    if ('serviceWorker' in navigator) {
+      try {
+        const swBlobText = `
+          const CACHE_NAME = 'scavenger-pwa-cache-v1';
+          self.addEventListener('install', (e) => {
+            self.skipWaiting();
+          });
+          self.addEventListener('activate', (e) => {
+            e.waitUntil(clients.claim());
+          });
+          self.addEventListener('fetch', (e) => {
+            e.respondWith(
+              caches.match(e.request).then((res) => {
+                return res || fetch(e.request);
+              })
+            );
+          });
+        `;
+        const blob = new Blob([swBlobText], { type: 'application/javascript' });
+        const swUrl = URL.createObjectURL(blob);
+        navigator.serviceWorker.register(swUrl)
+          .then(() => console.log("Inline PWA Service Worker Registered."))
+          .catch((err) => {
+            console.warn("SW Registration via Blob URI skipped. Attempting fallback ./sw.js registration...", err);
+            navigator.serviceWorker.register('./sw.js').catch(() => { });
+          });
+      } catch (e) {
+        console.error("SW logic registration failure", e);
+      }
+    }
+
+    // INITIALIZATION ON DOCUMENT READY
+    window.addEventListener('DOMContentLoaded', () => {
+      loadState();
+      initSensors();
+      render();
+    });
+  </script>
+</body>
+
+</html>

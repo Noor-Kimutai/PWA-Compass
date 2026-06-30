@@ -1,0 +1,17 @@
+# System Files
+.DS_Store
+Thumbs.db
+
+# IDE Configurations
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Local Agent Workspace Logs
+.agents/
+.gemini/
+*.log
