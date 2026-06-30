@@ -396,41 +396,33 @@
         screenCompass.classList.remove('flex');
         statusLine.textContent = "ACTIVE: WAYPOINT UNLOCK";
 
-        // Update Screen 1 Geofencing Layout States
+        // Update Screen 1 Layout States (Lockout removed by request)
         const textarea = document.getElementById('seed-phrase-input');
         const statusText = document.getElementById('geofence-status');
         const promptText = document.getElementById('geofence-prompt');
         const unlockBtn = document.getElementById('unlock-btn');
 
-        if (distance > 15) {
-          // Locked State
-          if (!textarea.disabled) {
-            userTypedDraft = textarea.value; // Store user typed work
+        // Always enable the inputs
+        if (textarea.disabled) {
+          textarea.disabled = false;
+          if (textarea.value === "KEEP WALKING. YOU ARE TOO FAR TO SPEAK TO THIS CHARACTER.") {
+            textarea.value = "";
           }
-          textarea.disabled = true;
-          textarea.value = "KEEP WALKING. YOU ARE TOO FAR TO SPEAK TO THIS CHARACTER.";
-          textarea.classList.add('opacity-40');
-          textarea.classList.remove('border-white');
-          textarea.classList.add('border-white/20');
-
-          unlockBtn.disabled = true;
-
-          statusText.textContent = `STATUS: LOCKED (${Math.round(distance)}m AWAY)`;
-          promptText.textContent = "";
-        } else {
-          // Unlocked State
-          if (textarea.disabled) {
-            textarea.disabled = false;
-            textarea.value = userTypedDraft; // Restore user typed work
-          }
-          textarea.classList.remove('opacity-40', 'border-white/20');
-          textarea.classList.add('border-white');
-
-          unlockBtn.disabled = false;
-
-          statusText.textContent = "STATUS: UNLOCKED";
-          promptText.textContent = "ARRIVED! FIND THE SECRET CODE ON-SITE TO UNLOCK THE NEXT LEG.";
         }
+        textarea.classList.remove('opacity-40', 'border-white/20');
+        textarea.classList.add('border-white');
+        unlockBtn.disabled = false;
+
+        // Display the current distance in the status
+        let formattedDist = "";
+        if (distance < 1000) {
+          formattedDist = `${Math.round(distance)}m`;
+        } else {
+          formattedDist = `${(distance / 1000).toFixed(2)}km`;
+        }
+
+        statusText.textContent = `TARGET DISTANCE: ${formattedDist}`;
+        promptText.textContent = "ENTER THE SECRET CODE TO UNLOCK THE NEXT LEG.";
       }
     }
 
