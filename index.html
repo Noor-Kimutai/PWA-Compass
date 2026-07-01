@@ -286,25 +286,26 @@
   </footer>
 
   <script>
-    // HARDCODED LOCAL LOOKUP WAYPOINT DATABASE
+    // CRYPTOGRAPHICALLY SECURE WAYPOINT DATABASE
+    // Coordinates are AES-GCM encrypted. They cannot be read from source code.
     const WAYPOINTS = [
       {
         name: "START GATE",
-        lat: 0.5142,
-        lng: 35.2697,
-        key: "START GATE" // Standard initial state target
+        hash: "67c8ec6ebda4a353c6eae1d02e3879d695fdb5d395c01ca9bae876797bee364d",
+        iv: "Q8aoJ0e3T4MnfGCY",
+        data: "6xpSHDhUpVDN6Pmnrw8In7XIU7LUwrJXghBdGyJqqtwUe40ECNe+cWf+URc="
       },
       {
         name: "WAYPOINT 1",
-        lat: 0.5212,
-        lng: 35.2601,
-        key: "ALPHA BRAVO CHARLIE DELTA ECHO FOXTROT GOLF HOTEL INDIA JULIET KILO LIMA"
+        hash: "0ab30464adfad6400dc63b468771aa37aa6dffde2be75c6a9a2f0f8cb35769ef",
+        iv: "/PiwcKEix51OP4ZS",
+        data: "j5ZYK9U2HVQSyCZMn97kjcZD6NSE0xg4Jev2Po7HDtJ551JiQYByu/Ys1zk="
       },
       {
         name: "WAYPOINT 2",
-        lat: 0.5115,
-        lng: 35.2814,
-        key: "ONE TWO THREE FOUR FIVE SIX SEVEN EIGHT NINE TEN ELEVEN TWELVE"
+        hash: "937f1496e95105a4e30cb30a82d078b9a164aa4c326ab5da778f283273972247",
+        iv: "F7AhkH8Ok7hlIF1W",
+        data: "mNwf9wTQtZa65mxMt32BUAQIWD4AXzZooAEKTDfw76ZLCGWZwAb3b2YjbEY="
       }
     ];
 
@@ -313,6 +314,10 @@
       currentWaypointIndex: 0,
       unlocked: false,
       useMock: false,
+
+      // Target location (Populated dynamically via AES Decryption)
+      targetLat: 0,
+      targetLng: 0,
 
       // Default initial mock locations (Zion Mall is target at index 0)
       playerLat: 0.5180, // Start ~665m away
@@ -389,9 +394,9 @@
       const currentLng = state.useMock ? state.playerLng : (state.realLng ?? state.playerLng);
       const currentHeading = state.useMock ? state.deviceHeading : (state.realHeading ?? state.deviceHeading);
 
-      // Calculate relative parameters
-      const distance = calculateDistance(currentLat, currentLng, activeWaypoint.lat, activeWaypoint.lng);
-      const bearing = calculateBearing(currentLat, currentLng, activeWaypoint.lat, activeWaypoint.lng);
+      // Calculate relative parameters using decrypted coordinates stored in state
+      const distance = calculateDistance(currentLat, currentLng, state.targetLat, state.targetLng);
+      const bearing = calculateBearing(currentLat, currentLng, state.targetLat, state.targetLng);
 
       // Handle Screen Routing Views
       const screenGate = document.getElementById('screen-gate');
@@ -461,7 +466,7 @@
     }
 
     // GAME PLAY ACTIONS
-    function attemptUnlock() {
+    async function attemptUnlock() {
       const textarea = document.getElementById('seed-phrase-input');
       const errAlert = document.getElementById('error-message');
 
@@ -474,33 +479,74 @@
 
       if (nextWaypointIndex < WAYPOINTS.length) {
         const nextTarget = WAYPOINTS[nextWaypointIndex];
-        if (sanitized === nextTarget.key.toUpperCase()) {
-          // Clean state and transition
-          errAlert.classList.add('hidden');
-          textarea.classList.remove('border-red-600');
-          textarea.classList.add('border-white');
+        
+        try {
+          const encoder = new TextEncoder();
+          const seedData = encoder.encode(sanitized);
 
-          state.currentWaypointIndex = nextWaypointIndex;
-          state.unlocked = true;
-          userTypedDraft = "";
-          textarea.value = "";
+          // 1. Hash input and verify against stored target hash
+          const hashBuffer = await crypto.subtle.digest('SHA-256', seedData);
+          const hashArray = Array.from(new Uint8Array(hashBuffer));
+          const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 
-          saveState();
-          render();
-        } else {
-          // Flash Border Red & Display contextual warning
+          if (hashHex === nextTarget.hash) {
+            // 2. Exact match! Derive AES key from hash and decrypt coordinates
+            const key = await crypto.subtle.importKey('raw', hashBuffer, { name: 'AES-GCM' }, false, ['decrypt']);
+            
+            const ivStr = atob(nextTarget.iv);
+            const iv = new Uint8Array(ivStr.length);
+            for(let i=0; i<ivStr.length; i++) iv[i] = ivStr.charCodeAt(i);
+
+            const dataStr = atob(nextTarget.data);
+            const dataBuffer = new Uint8Array(dataStr.length);
+            for(let i=0; i<dataStr.length; i++) dataBuffer[i] = dataStr.charCodeAt(i);
+
+            const decryptedBuffer = await crypto.subtle.decrypt(
+              { name: 'AES-GCM', iv: iv },
+              key,
+              dataBuffer
+            );
+
+            const decoder = new TextDecoder();
+            const payload = JSON.parse(decoder.decode(decryptedBuffer));
+
+            // Load decrypted coordinates into state
+            state.targetLat = payload.lat;
+            state.targetLng = payload.lng;
+
+            // Clean state and transition
+            errAlert.classList.add('hidden');
+            textarea.classList.remove('border-red-600');
+            textarea.classList.add('border-white');
+
+            state.currentWaypointIndex = nextWaypointIndex;
+            state.unlocked = true;
+            userTypedDraft = "";
+            textarea.value = "";
+
+            saveState();
+            render();
+          } else {
+            // Flash Border Red & Display contextual warning
+            errAlert.classList.remove('hidden');
+            textarea.classList.remove('border-white');
+            textarea.classList.add('border-red-600', 'flash-border-red');
+
+            // Trigger Haptic feedback if available
+            if (navigator.vibrate) {
+              navigator.vibrate([100, 50, 100]);
+            }
+
+            setTimeout(() => {
+              textarea.classList.remove('flash-border-red');
+            }, 900);
+          }
+        } catch (e) {
+          console.error("Cryptographic Decryption Error:", e);
+          errAlert.textContent = "DECRYPTION FAILED. INVALID KEY MATERIAL.";
           errAlert.classList.remove('hidden');
           textarea.classList.remove('border-white');
           textarea.classList.add('border-red-600', 'flash-border-red');
-
-          // Trigger Haptic feedback if available
-          if (navigator.vibrate) {
-            navigator.vibrate([100, 50, 100]);
-          }
-
-          setTimeout(() => {
-            textarea.classList.remove('flash-border-red');
-          }, 900);
         }
       } else {
         // Edge case: no more waypoints

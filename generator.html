@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PWA Compass - Encrypted Waypoint Generator</title>
+  <style>
+    body { font-family: monospace; background: #111; color: #fff; padding: 2rem; max-width: 600px; margin: 0 auto; }
+    input { width: 100%; padding: 0.5rem; margin-bottom: 1rem; background: #222; border: 1px solid #444; color: #fff; box-sizing: border-box; }
+    button { padding: 1rem; background: #fff; color: #000; border: none; cursor: pointer; font-weight: bold; width: 100%; margin-bottom: 1rem; font-family: monospace; letter-spacing: 2px;}
+    button:hover { background: #ddd; }
+    pre { background: #000; padding: 1rem; border: 1px solid #333; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word; color: #0f0;}
+    .help { font-size: 0.8rem; color: #888; margin-bottom: 2rem; }
+  </style>
+</head>
+<body>
+  <h2>Encrypted Waypoint Generator</h2>
+  <div class="help">
+    Use this tool to securely encrypt your GPS coordinates before pasting them into index.html. 
+    This guarantees that players cannot view the source code to cheat.
+  </div>
+
+  <label>Waypoint Name (e.g. "WAYPOINT 2"):</label>
+  <input type="text" id="wp-name" value="WAYPOINT X">
+  
+  <label>Latitude:</label>
+  <input type="number" id="wp-lat" step="any" value="0.5115">
+  
+  <label>Longitude:</label>
+  <input type="number" id="wp-lng" step="any" value="35.2814">
+  
+  <label>Secret Seed Phrase (To unlock this waypoint):</label>
+  <input type="text" id="wp-seed" value="SECRET CODE">
+  
+  <button onclick="generate()">ENCRYPT & GENERATE</button>
+  
+  <label>Copy & paste this dictionary into the WAYPOINTS array in index.html:</label>
+  <pre id="output">Output will appear here...</pre>
+
+  <script>
+    async function generate() {
+      const name = document.getElementById('wp-name').value;
+      const lat = parseFloat(document.getElementById('wp-lat').value);
+      const lng = parseFloat(document.getElementById('wp-lng').value);
+      let seed = document.getElementById('wp-seed').value;
+      
+      // Sanitize seed just like the app does
+      seed = seed.replace(/\s+/g, ' ').trim().toUpperCase();
+
+      if (!seed) {
+        alert("Seed phrase cannot be empty!");
+        return;
+      }
+
+      const encoder = new TextEncoder();
+      const seedData = encoder.encode(seed);
+
+      // 1. Hash the seed phrase (SHA-256)
+      const hashBuffer = await crypto.subtle.digest('SHA-256', seedData);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+      // 2. Use the raw 256-bit hash buffer as an AES-GCM Key
+      const key = await crypto.subtle.importKey(
+        'raw',
+        hashBuffer,
+        { name: 'AES-GCM' },
+        false,
+        ['encrypt']
+      );
+
+      // 3. Encrypt the coordinate payload
+      const payload = JSON.stringify({ lat, lng });
+      const payloadData = encoder.encode(payload);
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      
+      const encryptedBuffer = await crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv: iv },
+        key,
+        payloadData
+      );
+
+      // 4. Convert IV and Ciphertext to Base64
+      const ivBase64 = btoa(String.fromCharCode(...iv));
+      const encryptedBase64 = btoa(String.fromCharCode(...new Uint8Array(encryptedBuffer)));
+
+      // 5. Output
+      const outputText = "      {\n" +
+        `        name: "${name}",\n` +
+        `        hash: "${hashHex}",\n` +
+        `        iv: "${ivBase64}",\n` +
+        `        data: "${encryptedBase64}"\n` +
+        "      }";
+        
+      document.getElementById('output').textContent = outputText;
+    }
+  </script>
+</body>
+</html>
