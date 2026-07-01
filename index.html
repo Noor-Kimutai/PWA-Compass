@@ -173,18 +173,8 @@
         </svg>
       </div>
 
-      <!-- Target Bearing Readout -->
-      <div id="bearing-readout" class="text-center mt-4 font-mono text-sm tracking-widest text-[#FF3333] uppercase font-bold">
-        TARGET: --°
-      </div>
-
-      <!-- Manual Override Hint -->
-      <div id="manual-compass-hint" class="text-center mt-2 font-mono text-[10px] tracking-widest text-white/50 uppercase hidden">
-        [ NO SENSOR. SWIPE SCREEN TO ROTATE ]
-      </div>
-
       <!-- Distance Readout (Bottom) -->
-      <div class="text-center mt-4">
+      <div class="text-center mt-6">
         <div id="distance-readout" class="text-6xl font-black tracking-tight text-white font-sans">
           ---
         </div>
@@ -416,8 +406,6 @@
 
         // Update Screen 2 Values
         const readout = document.getElementById('distance-readout');
-        const bearingReadout = document.getElementById('bearing-readout');
-        const manualHint = document.getElementById('manual-compass-hint');
         const victory = document.getElementById('victory-banner');
 
         // Output distance formatting
@@ -425,21 +413,6 @@
           readout.textContent = `${Math.round(distance)}m`;
         } else {
           readout.textContent = `${(distance / 1000).toFixed(2)}km`;
-        }
-
-        // Bearing String formatting
-        if (bearingReadout) {
-          const directions = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
-          const val = Math.floor((bearing / 22.5) + 0.5);
-          const dirString = directions[(val % 16)];
-          bearingReadout.textContent = `TARGET: ${dirString} (${Math.round(bearing)}°)`;
-        }
-
-        // Display manual rotation hint if sensors are dead
-        if (state.realHeading === null) {
-          manualHint.classList.remove('hidden');
-        } else {
-          manualHint.classList.add('hidden');
         }
 
         // Rotate Pointer
@@ -613,6 +586,14 @@
             if (diagGps) {
               diagGps.textContent = `ACTIVE (${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)})`;
             }
+
+            // GPS HEADING FALLBACK: If hardware compass is blocked/missing, use GPS trajectory heading (requires user to be physically moving)
+            if (pos.coords.heading !== null && !isNaN(pos.coords.heading)) {
+              if (sensorSource === 'NONE' || sensorSource === 'GPS') {
+                onCompassHeading(pos.coords.heading, 'GPS');
+              }
+            }
+
             if (!state.useMock) {
               render();
             }
@@ -942,43 +923,6 @@
       initSensors();
       render();
     });
-
-    // MANUAL COMPASS ROTATION OVERRIDE
-    // Allows user to swipe/drag the screen left or right to manually rotate the compass
-    // if their device lacks a hardware magnetometer or permissions are blocked.
-    const compassScreen = document.getElementById('screen-compass');
-    let isDragging = false;
-    let startX = 0;
-    let startHeading = 0;
-
-    const startDrag = (x) => {
-      if (state.realHeading === null) { // Only allow manual if hardware is missing/blocked
-        isDragging = true;
-        startX = x;
-        startHeading = state.deviceHeading;
-      }
-    };
-    
-    const onDrag = (x) => {
-      if (!isDragging) return;
-      const deltaX = x - startX;
-      state.deviceHeading = (startHeading - (deltaX * 0.4) + 360) % 360; // 1px = 0.4 deg
-      render();
-    };
-    
-    const endDrag = () => { isDragging = false; };
-
-    // Mouse drag
-    compassScreen.addEventListener('mousedown', (e) => startDrag(e.clientX));
-    window.addEventListener('mousemove', (e) => onDrag(e.clientX));
-    window.addEventListener('mouseup', endDrag);
-
-    // Touch swipe
-    compassScreen.addEventListener('touchstart', (e) => startDrag(e.touches[0].clientX), {passive: true});
-    window.addEventListener('touchmove', (e) => {
-      if(isDragging) onDrag(e.touches[0].clientX);
-    }, {passive: true});
-    window.addEventListener('touchend', endDrag);
 
     // SILENT SENSOR GESTURE UNLOCK FALLBACK:
     // If initial sensor binding was blocked on page load due to lack of a user gesture,
