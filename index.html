@@ -769,18 +769,35 @@
     if ('serviceWorker' in navigator) {
       try {
         const swBlobText = `
-          const CACHE_NAME = 'scavenger-pwa-cache-v1';
+          const CACHE_NAME = 'scavenger-pwa-cache-v2';
           self.addEventListener('install', (e) => {
             self.skipWaiting();
           });
           self.addEventListener('activate', (e) => {
-            e.waitUntil(clients.claim());
+            e.waitUntil(
+              caches.keys().then((keys) => {
+                return Promise.all(
+                  keys.map((key) => {
+                    if (key !== CACHE_NAME) {
+                      return caches.delete(key);
+                    }
+                  })
+                );
+              }).then(() => clients.claim())
+            );
           });
           self.addEventListener('fetch', (e) => {
             e.respondWith(
-              caches.match(e.request).then((res) => {
-                return res || fetch(e.request);
-              })
+              fetch(e.request)
+                .then((res) => {
+                  return caches.open(CACHE_NAME).then((cache) => {
+                    cache.put(e.request, res.clone());
+                    return res;
+                  });
+                })
+                .catch(() => {
+                  return caches.match(e.request);
+                })
             );
           });
         `;
@@ -799,6 +816,12 @@
 
     // INITIALIZATION ON DOCUMENT READY
     window.addEventListener('DOMContentLoaded', () => {
+      // Clear service worker caches to prevent development caching lockouts
+      if (window.caches) {
+        caches.keys().then(keys => {
+          keys.forEach(key => caches.delete(key));
+        }).catch(() => {});
+      }
       loadState();
       initSensors();
       render();
