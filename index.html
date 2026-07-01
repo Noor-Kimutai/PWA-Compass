@@ -41,7 +41,6 @@
       background-color: #000000;
       color: #FFFFFF;
       -webkit-tap-highlight-color: transparent;
-      user-select: none;
     }
 
     /* Keyframes for the invalid code flashing animation */
@@ -75,6 +74,12 @@
 
     ::-webkit-scrollbar-thumb {
       background: #FFFFFF;
+    }
+
+    /* Force momentum touch scrolling on mobile devices */
+    #dev-panel-content {
+      -webkit-overflow-scrolling: touch !important;
+      touch-action: auto !important;
     }
   </style>
 </head>
@@ -201,7 +206,7 @@
   </main>
 
   <!-- DEVELOPER UTILITIES PANEL (Fixed bottom drawer collapse/expand) -->
-  <footer class="fixed bottom-0 left-0 right-0 border-t border-white/20 bg-black select-none z-50">
+  <footer class="fixed bottom-0 left-0 right-0 border-t border-white/20 bg-black z-50">
 
     <!-- Collapsible Bar Toggle Header -->
     <button onclick="toggleDevPanel()"
