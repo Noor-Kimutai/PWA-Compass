@@ -274,8 +274,11 @@
         <div>// HARDWARE SENSOR DIAGNOSTICS:</div>
         <div>GPS STATUS: <span id="diag-gps" class="text-white">NOT ACTIVE</span></div>
         <div>COMPASS STATUS: <span id="diag-compass" class="text-white">NOT ACTIVE</span></div>
+        <div>COMPASS RAW: <span id="diag-compass-raw" class="text-white">WAITING...</span></div>
+        <div>COMPASS COUNT: <span id="diag-compass-cnt" class="text-white">0</span></div>
         <div class="pt-2 text-white/30 text-[9px] leading-normal uppercase">
-          TIP: IF STATUS IS STUCK, ENSURE SENSOR ACCESS IS ALLOWED (TAP LOCK ICON IN CHROME ADRESS BAR > SITE SETTINGS > MOTION SENSORS > ALLOW).
+          TIP: IF STATUS IS STUCK, ENSURE SENSOR ACCESS IS ALLOWED (TAP LOCK ICON IN CHROME ADRESS BAR > SITE SETTINGS >
+          MOTION SENSORS > ALLOW).
         </div>
       </div>
 
@@ -604,28 +607,41 @@
       }
       // Compass Sensor Listeners
       const diagCompass = document.getElementById('diag-compass');
+      const diagCompassRaw = document.getElementById('diag-compass-raw');
+      const diagCompassCnt = document.getElementById('diag-compass-cnt');
       if (diagCompass) diagCompass.textContent = "WAITING FOR SENSOR...";
 
       let hasAbsolute = false;
+      let eventCount = 0;
 
       const handleOrientation = (e) => {
+        eventCount++;
+        if (diagCompassCnt) {
+          diagCompassCnt.textContent = eventCount;
+        }
+        if (diagCompassRaw) {
+          const rawAlpha = e.alpha !== null && e.alpha !== undefined ? Math.round(e.alpha) : 'NULL';
+          const rawBeta = e.beta !== null && e.beta !== undefined ? Math.round(e.beta) : 'NULL';
+          const rawGamma = e.gamma !== null && e.gamma !== undefined ? Math.round(e.gamma) : 'NULL';
+          diagCompassRaw.textContent = `A:${rawAlpha}° B:${rawBeta}° G:${rawGamma}° TYPE:${e.type === 'deviceorientationabsolute' ? 'ABS' : 'REL'}`;
+        }
+
         // If we already received an absolute event, ignore subsequent relative events
         if (e.type === 'deviceorientation' && hasAbsolute) {
           return;
         }
 
-        if (e.type === 'deviceorientationabsolute') {
-          hasAbsolute = true;
-        }
-
         let heading = null;
         if (e.webkitCompassHeading !== undefined) {
           heading = e.webkitCompassHeading;
-        } else if (e.alpha !== null) {
+        } else if (e.alpha !== null && e.alpha !== undefined) {
           heading = (360 - e.alpha) % 360;
         }
 
         if (heading !== null) {
+          if (e.type === 'deviceorientationabsolute') {
+            hasAbsolute = true;
+          }
           state.realHeading = heading;
           if (diagCompass) {
             const eventType = e.type === 'deviceorientationabsolute' ? 'ABS' : 'REL';
@@ -820,7 +836,7 @@
       if (window.caches) {
         caches.keys().then(keys => {
           keys.forEach(key => caches.delete(key));
-        }).catch(() => {});
+        }).catch(() => { });
       }
       loadState();
       initSensors();
