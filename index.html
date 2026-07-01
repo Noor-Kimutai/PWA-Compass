@@ -173,8 +173,18 @@
         </svg>
       </div>
 
+      <!-- Target Bearing Readout -->
+      <div id="bearing-readout" class="text-center mt-4 font-mono text-sm tracking-widest text-[#FF3333] uppercase font-bold">
+        TARGET: --°
+      </div>
+
+      <!-- Manual Override Hint -->
+      <div id="manual-compass-hint" class="text-center mt-2 font-mono text-[10px] tracking-widest text-white/50 uppercase hidden">
+        [ NO SENSOR. SWIPE SCREEN TO ROTATE ]
+      </div>
+
       <!-- Distance Readout (Bottom) -->
-      <div class="text-center mt-6">
+      <div class="text-center mt-4">
         <div id="distance-readout" class="text-6xl font-black tracking-tight text-white font-sans">
           ---
         </div>
@@ -406,6 +416,8 @@
 
         // Update Screen 2 Values
         const readout = document.getElementById('distance-readout');
+        const bearingReadout = document.getElementById('bearing-readout');
+        const manualHint = document.getElementById('manual-compass-hint');
         const victory = document.getElementById('victory-banner');
 
         // Output distance formatting
@@ -413,6 +425,21 @@
           readout.textContent = `${Math.round(distance)}m`;
         } else {
           readout.textContent = `${(distance / 1000).toFixed(2)}km`;
+        }
+
+        // Bearing String formatting
+        if (bearingReadout) {
+          const directions = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+          const val = Math.floor((bearing / 22.5) + 0.5);
+          const dirString = directions[(val % 16)];
+          bearingReadout.textContent = `TARGET: ${dirString} (${Math.round(bearing)}°)`;
+        }
+
+        // Display manual rotation hint if sensors are dead
+        if (state.realHeading === null) {
+          manualHint.classList.remove('hidden');
+        } else {
+          manualHint.classList.add('hidden');
         }
 
         // Rotate Pointer
@@ -603,18 +630,26 @@
         if (diagGps) diagGps.textContent = "NOT SUPPORTED";
       }
       // COMPASS SENSOR SYSTEM
-      // Strategy: Try the modern Generic Sensor API first (works on Android Chrome).
-      // Fall back to legacy deviceorientation events (works on iOS Safari, Firefox).
+      // Strategy:
+      // 1. ALWAYS bind legacy deviceorientation events as a baseline (works everywhere)
+      // 2. THEN try the modern Generic Sensor API on top (better accuracy on Android Chrome)
+      // If Generic Sensor works, it overrides the legacy heading. If it fails, legacy continues.
       const diagCompass = document.getElementById('diag-compass');
       const diagCompassRaw = document.getElementById('diag-compass-raw');
       const diagCompassCnt = document.getElementById('diag-compass-cnt');
-      if (diagCompass) diagCompass.textContent = "WAITING FOR SENSOR...";
+      if (diagCompass) diagCompass.textContent = "INITIALIZING...";
 
       let compassEventCount = 0;
-      let compassBound = false;
+      let sensorSource = 'NONE';
 
       function onCompassHeading(heading, source) {
+        // If we have a higher-priority source active, ignore lower-priority updates
+        // Priority: SENSOR-API > ABS-EVT > REL-EVT
+        if (sensorSource === 'SENSOR-API' && source !== 'SENSOR-API') return;
+        if (sensorSource === 'ABS-EVT' && source === 'REL-EVT') return;
+
         compassEventCount++;
+        sensorSource = source;
         if (diagCompassCnt) diagCompassCnt.textContent = compassEventCount;
         state.realHeading = heading;
         if (diagCompass) {
@@ -625,94 +660,12 @@
         }
       }
 
-      // METHOD 1: Generic Sensor API (AbsoluteOrientationSensor)
-      // This is the modern Chrome-supported API that properly requests sensor permissions.
-      function tryGenericSensor() {
-        if ('AbsoluteOrientationSensor' in window) {
-          try {
-            const sensor = new AbsoluteOrientationSensor({ frequency: 30, referenceFrame: 'device' });
-            
-            sensor.addEventListener('reading', () => {
-              // Convert quaternion [x, y, z, w] to compass heading
-              const q = sensor.quaternion;
-              const [x, y, z, w] = q;
-              
-              // Extract yaw (heading) from quaternion
-              const siny_cosp = 2.0 * (w * z + x * y);
-              const cosy_cosp = 1.0 - 2.0 * (y * y + z * z);
-              let heading = Math.atan2(siny_cosp, cosy_cosp) * (180 / Math.PI);
-              heading = (360 - heading) % 360;
-              
-              if (diagCompassRaw) {
-                diagCompassRaw.textContent = `Q:[${q.map(v => v.toFixed(2)).join(',')}] H:${Math.round(heading)}°`;
-              }
-              
-              onCompassHeading(heading, 'SENSOR-API');
-            });
-
-            sensor.addEventListener('error', (e) => {
-              console.warn("AbsoluteOrientationSensor error:", e.error.name, e.error.message);
-              if (diagCompass) diagCompass.textContent = `SENSOR-API ERROR: ${e.error.name}`;
-              // Fall back to legacy events
-              if (!compassBound) tryLegacyOrientation();
-            });
-
-            sensor.start();
-            compassBound = true;
-            if (diagCompass) diagCompass.textContent = "SENSOR-API: STARTING...";
-            return true;
-          } catch (err) {
-            console.warn("AbsoluteOrientationSensor construction failed:", err);
-            return false;
-          }
-        }
-        return false;
-      }
-
-      // METHOD 2: Relative Orientation Sensor (fallback if Absolute not available)
-      function tryRelativeSensor() {
-        if ('RelativeOrientationSensor' in window) {
-          try {
-            const sensor = new RelativeOrientationSensor({ frequency: 30 });
-            
-            sensor.addEventListener('reading', () => {
-              const q = sensor.quaternion;
-              const [x, y, z, w] = q;
-              const siny_cosp = 2.0 * (w * z + x * y);
-              const cosy_cosp = 1.0 - 2.0 * (y * y + z * z);
-              let heading = Math.atan2(siny_cosp, cosy_cosp) * (180 / Math.PI);
-              heading = (heading + 360) % 360;
-
-              if (diagCompassRaw) {
-                diagCompassRaw.textContent = `REL-Q:[${q.map(v => v.toFixed(2)).join(',')}]`;
-              }
-              
-              onCompassHeading(heading, 'REL-SENSOR');
-            });
-
-            sensor.addEventListener('error', (e) => {
-              console.warn("RelativeOrientationSensor error:", e.error);
-              if (!compassBound) tryLegacyOrientation();
-            });
-
-            sensor.start();
-            compassBound = true;
-            if (diagCompass) diagCompass.textContent = "REL-SENSOR: STARTING...";
-            return true;
-          } catch (err) {
-            console.warn("RelativeOrientationSensor failed:", err);
-            return false;
-          }
-        }
-        return false;
-      }
-
-      // METHOD 3: Legacy deviceorientation events (iOS Safari, Firefox, older browsers)
-      function tryLegacyOrientation() {
+      // STEP 1: ALWAYS bind legacy deviceorientation events as baseline
+      (function bindLegacyOrientation() {
         let hasAbsolute = false;
         
         const handleOrientation = (e) => {
-          if (diagCompassRaw) {
+          if (diagCompassRaw && sensorSource !== 'SENSOR-API') {
             const rawAlpha = e.alpha !== null && e.alpha !== undefined ? Math.round(e.alpha) : 'NULL';
             const rawBeta = e.beta !== null && e.beta !== undefined ? Math.round(e.beta) : 'NULL';
             const rawGamma = e.gamma !== null && e.gamma !== undefined ? Math.round(e.gamma) : 'NULL';
@@ -736,16 +689,78 @@
 
         window.addEventListener('deviceorientationabsolute', handleOrientation, true);
         window.addEventListener('deviceorientation', handleOrientation, true);
-        compassBound = true;
-        if (diagCompass) diagCompass.textContent = "LEGACY EVENTS: LISTENING...";
-      }
+        if (diagCompass) diagCompass.textContent = "LEGACY: LISTENING...";
+      })();
 
-      // Execute sensor binding cascade: Generic Sensor API → Legacy Events
-      if (!tryGenericSensor()) {
-        if (!tryRelativeSensor()) {
-          tryLegacyOrientation();
+      // STEP 2: Try to upgrade to Generic Sensor API (async, with permission requests)
+      (async function tryUpgradeToGenericSensor() {
+        if (!('AbsoluteOrientationSensor' in window)) {
+          console.log("Generic Sensor API not available, staying with legacy events.");
+          return;
         }
-      }
+
+        // First, check and request permissions through the Permissions API
+        try {
+          const permNames = ['accelerometer', 'gyroscope', 'magnetometer'];
+          const results = await Promise.all(
+            permNames.map(name => 
+              navigator.permissions.query({ name }).catch(() => ({ state: 'unknown' }))
+            )
+          );
+          
+          const denied = results.some(r => r.state === 'denied');
+          if (denied) {
+            console.warn("One or more sensor permissions denied. Staying with legacy events.");
+            if (diagCompass) diagCompass.textContent = "SENSORS DENIED - LEGACY FALLBACK";
+            return;
+          }
+          
+          console.log("Sensor permissions:", results.map((r, i) => `${permNames[i]}=${r.state}`).join(', '));
+        } catch (permErr) {
+          console.log("Permissions API query not supported, trying sensor directly...", permErr);
+        }
+
+        // Now try to create and start the sensor
+        try {
+          const sensor = new AbsoluteOrientationSensor({ frequency: 30, referenceFrame: 'device' });
+          
+          sensor.addEventListener('reading', () => {
+            const q = sensor.quaternion;
+            const [x, y, z, w] = q;
+            
+            // Extract compass heading from quaternion
+            const siny_cosp = 2.0 * (w * z + x * y);
+            const cosy_cosp = 1.0 - 2.0 * (y * y + z * z);
+            let heading = Math.atan2(siny_cosp, cosy_cosp) * (180 / Math.PI);
+            heading = (360 - heading) % 360;
+            
+            if (diagCompassRaw) {
+              diagCompassRaw.textContent = `Q:[${q.map(v => v.toFixed(2)).join(',')}] H:${Math.round(heading)}°`;
+            }
+            
+            onCompassHeading(heading, 'SENSOR-API');
+          });
+
+          sensor.addEventListener('error', (e) => {
+            console.warn("AbsoluteOrientationSensor error:", e.error.name, e.error.message);
+            // Reset source so legacy events can take over
+            if (sensorSource === 'SENSOR-API' || sensorSource === 'NONE') {
+              sensorSource = 'NONE';
+            }
+            if (diagCompass && !diagCompass.textContent.includes('ACTIVE')) {
+              diagCompass.textContent = `SENSOR-API FAILED (${e.error.name}) - USING LEGACY`;
+            }
+          });
+
+          sensor.start();
+          console.log("AbsoluteOrientationSensor started successfully.");
+        } catch (err) {
+          console.warn("AbsoluteOrientationSensor construction failed:", err.message);
+          if (diagCompass && !diagCompass.textContent.includes('ACTIVE')) {
+            diagCompass.textContent = `SENSOR UNAVAILABLE - USING LEGACY`;
+          }
+        }
+      })();
     }
 
     // STATE LOCALSTORAGE LOGIC
@@ -927,6 +942,43 @@
       initSensors();
       render();
     });
+
+    // MANUAL COMPASS ROTATION OVERRIDE
+    // Allows user to swipe/drag the screen left or right to manually rotate the compass
+    // if their device lacks a hardware magnetometer or permissions are blocked.
+    const compassScreen = document.getElementById('screen-compass');
+    let isDragging = false;
+    let startX = 0;
+    let startHeading = 0;
+
+    const startDrag = (x) => {
+      if (state.realHeading === null) { // Only allow manual if hardware is missing/blocked
+        isDragging = true;
+        startX = x;
+        startHeading = state.deviceHeading;
+      }
+    };
+    
+    const onDrag = (x) => {
+      if (!isDragging) return;
+      const deltaX = x - startX;
+      state.deviceHeading = (startHeading - (deltaX * 0.4) + 360) % 360; // 1px = 0.4 deg
+      render();
+    };
+    
+    const endDrag = () => { isDragging = false; };
+
+    // Mouse drag
+    compassScreen.addEventListener('mousedown', (e) => startDrag(e.clientX));
+    window.addEventListener('mousemove', (e) => onDrag(e.clientX));
+    window.addEventListener('mouseup', endDrag);
+
+    // Touch swipe
+    compassScreen.addEventListener('touchstart', (e) => startDrag(e.touches[0].clientX), {passive: true});
+    window.addEventListener('touchmove', (e) => {
+      if(isDragging) onDrag(e.touches[0].clientX);
+    }, {passive: true});
+    window.addEventListener('touchend', endDrag);
 
     // SILENT SENSOR GESTURE UNLOCK FALLBACK:
     // If initial sensor binding was blocked on page load due to lack of a user gesture,
