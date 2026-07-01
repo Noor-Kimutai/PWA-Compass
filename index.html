@@ -528,25 +528,22 @@
     }
 
     function grantAllPermissions() {
-      // 1. Request Geolocation Permission first
+      // 1. Synchronously trigger orientation permissions flow first to capture the active user gesture context!
+      handleOrientationPermissionFlow();
+
+      // 2. Request Geolocation Permission asynchronously
       if ('geolocation' in navigator) {
         navigator.geolocation.getCurrentPosition(
           (pos) => {
             state.realLat = pos.coords.latitude;
             state.realLng = pos.coords.longitude;
-
-            // Next, check iOS DeviceOrientation permission
-            handleOrientationPermissionFlow();
+            if (!state.useMock) render();
           },
           (err) => {
             console.warn("GPS Permission error or denied:", err);
-            // Fallback and try orientation permission anyway
-            handleOrientationPermissionFlow();
           },
           { enableHighAccuracy: true, timeout: 5000 }
         );
-      } else {
-        handleOrientationPermissionFlow();
       }
     }
 
@@ -842,6 +839,21 @@
       initSensors();
       render();
     });
+
+    // SILENT SENSOR GESTURE UNLOCK FALLBACK:
+    // If initial sensor binding was blocked on page load due to lack of a user gesture,
+    // intercept the first physical user interaction anywhere on the document to synchronously
+    // re-bind the listeners within the user gesture context.
+    window.addEventListener('click', () => {
+      const cntEl = document.getElementById('diag-compass-cnt');
+      if (cntEl) {
+        const cntVal = parseInt(cntEl.textContent, 10);
+        if (isNaN(cntVal) || cntVal < 5) {
+          console.log("User gesture detected. Re-binding orientation sensors to satisfy browser permissions...");
+          startHardwareTracking();
+        }
+      }
+    }, { passive: true });
   </script>
 </body>
 
