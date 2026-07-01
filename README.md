@@ -40,3 +40,11 @@ To run the server and test mobile sensors:
    - Go to `chrome://flags/#unsafely-treat-insecure-origin-as-secure` on your phone's Chrome browser.
    - Enable the flag and add your local URL: `http://<your-computer-ip>:8000`.
    - Relaunch Chrome. The app will have full access to GPS and orientation compass sensors!
+
+### Generating New Waypoints
+The app's source code is cryptographically secured. Plain-text seed phrases and GPS coordinates cannot be extracted from `index.html`. To add new destinations to your scavenger hunt:
+1. Open the included `generator.html` file in your browser.
+2. Enter the Waypoint Name, Latitude, Longitude, and the Secret Seed Phrase players must type to unlock it.
+3. Click **ENCRYPT & GENERATE**.
+4. The tool will output an AES-GCM encrypted Javascript dictionary.
+5. Copy this block of code and paste it into the `WAYPOINTS` array inside `index.html`.
