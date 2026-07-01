@@ -602,61 +602,149 @@
         const diagGps = document.getElementById('diag-gps');
         if (diagGps) diagGps.textContent = "NOT SUPPORTED";
       }
-      // Compass Sensor Listeners
+      // COMPASS SENSOR SYSTEM
+      // Strategy: Try the modern Generic Sensor API first (works on Android Chrome).
+      // Fall back to legacy deviceorientation events (works on iOS Safari, Firefox).
       const diagCompass = document.getElementById('diag-compass');
       const diagCompassRaw = document.getElementById('diag-compass-raw');
       const diagCompassCnt = document.getElementById('diag-compass-cnt');
       if (diagCompass) diagCompass.textContent = "WAITING FOR SENSOR...";
 
-      let hasAbsolute = false;
-      let eventCount = 0;
+      let compassEventCount = 0;
+      let compassBound = false;
 
-      const handleOrientation = (e) => {
-        eventCount++;
-        if (diagCompassCnt) {
-          diagCompassCnt.textContent = eventCount;
+      function onCompassHeading(heading, source) {
+        compassEventCount++;
+        if (diagCompassCnt) diagCompassCnt.textContent = compassEventCount;
+        state.realHeading = heading;
+        if (diagCompass) {
+          diagCompass.textContent = `ACTIVE (${source}: ${Math.round(heading)}°)`;
         }
-        if (diagCompassRaw) {
-          const rawAlpha = e.alpha !== null && e.alpha !== undefined ? Math.round(e.alpha) : 'NULL';
-          const rawBeta = e.beta !== null && e.beta !== undefined ? Math.round(e.beta) : 'NULL';
-          const rawGamma = e.gamma !== null && e.gamma !== undefined ? Math.round(e.gamma) : 'NULL';
-          diagCompassRaw.textContent = `A:${rawAlpha}° B:${rawBeta}° G:${rawGamma}° TYPE:${e.type === 'deviceorientationabsolute' ? 'ABS' : 'REL'}`;
+        if (!state.useMock) {
+          render();
         }
+      }
 
-        // If we already received an absolute event, ignore subsequent relative events
-        if (e.type === 'deviceorientation' && hasAbsolute) {
-          return;
-        }
+      // METHOD 1: Generic Sensor API (AbsoluteOrientationSensor)
+      // This is the modern Chrome-supported API that properly requests sensor permissions.
+      function tryGenericSensor() {
+        if ('AbsoluteOrientationSensor' in window) {
+          try {
+            const sensor = new AbsoluteOrientationSensor({ frequency: 30, referenceFrame: 'device' });
+            
+            sensor.addEventListener('reading', () => {
+              // Convert quaternion [x, y, z, w] to compass heading
+              const q = sensor.quaternion;
+              const [x, y, z, w] = q;
+              
+              // Extract yaw (heading) from quaternion
+              const siny_cosp = 2.0 * (w * z + x * y);
+              const cosy_cosp = 1.0 - 2.0 * (y * y + z * z);
+              let heading = Math.atan2(siny_cosp, cosy_cosp) * (180 / Math.PI);
+              heading = (360 - heading) % 360;
+              
+              if (diagCompassRaw) {
+                diagCompassRaw.textContent = `Q:[${q.map(v => v.toFixed(2)).join(',')}] H:${Math.round(heading)}°`;
+              }
+              
+              onCompassHeading(heading, 'SENSOR-API');
+            });
 
-        let heading = null;
-        if (e.webkitCompassHeading !== undefined) {
-          heading = e.webkitCompassHeading;
-        } else if (e.alpha !== null && e.alpha !== undefined) {
-          heading = (360 - e.alpha) % 360;
-        }
+            sensor.addEventListener('error', (e) => {
+              console.warn("AbsoluteOrientationSensor error:", e.error.name, e.error.message);
+              if (diagCompass) diagCompass.textContent = `SENSOR-API ERROR: ${e.error.name}`;
+              // Fall back to legacy events
+              if (!compassBound) tryLegacyOrientation();
+            });
 
-        if (heading !== null) {
-          if (e.type === 'deviceorientationabsolute') {
-            hasAbsolute = true;
+            sensor.start();
+            compassBound = true;
+            if (diagCompass) diagCompass.textContent = "SENSOR-API: STARTING...";
+            return true;
+          } catch (err) {
+            console.warn("AbsoluteOrientationSensor construction failed:", err);
+            return false;
           }
-          state.realHeading = heading;
-          if (diagCompass) {
-            const eventType = e.type === 'deviceorientationabsolute' ? 'ABS' : 'REL';
-            diagCompass.textContent = `ACTIVE (${eventType}: ${Math.round(heading)}°)`;
-          }
-          if (!state.useMock) {
-            render();
+        }
+        return false;
+      }
+
+      // METHOD 2: Relative Orientation Sensor (fallback if Absolute not available)
+      function tryRelativeSensor() {
+        if ('RelativeOrientationSensor' in window) {
+          try {
+            const sensor = new RelativeOrientationSensor({ frequency: 30 });
+            
+            sensor.addEventListener('reading', () => {
+              const q = sensor.quaternion;
+              const [x, y, z, w] = q;
+              const siny_cosp = 2.0 * (w * z + x * y);
+              const cosy_cosp = 1.0 - 2.0 * (y * y + z * z);
+              let heading = Math.atan2(siny_cosp, cosy_cosp) * (180 / Math.PI);
+              heading = (heading + 360) % 360;
+
+              if (diagCompassRaw) {
+                diagCompassRaw.textContent = `REL-Q:[${q.map(v => v.toFixed(2)).join(',')}]`;
+              }
+              
+              onCompassHeading(heading, 'REL-SENSOR');
+            });
+
+            sensor.addEventListener('error', (e) => {
+              console.warn("RelativeOrientationSensor error:", e.error);
+              if (!compassBound) tryLegacyOrientation();
+            });
+
+            sensor.start();
+            compassBound = true;
+            if (diagCompass) diagCompass.textContent = "REL-SENSOR: STARTING...";
+            return true;
+          } catch (err) {
+            console.warn("RelativeOrientationSensor failed:", err);
+            return false;
           }
         }
-      };
+        return false;
+      }
 
-      // Always register both event listeners to bypass browser-specific detection bugs.
-      // The hasAbsolute filter will discard relative data if absolute is supported.
-      window.addEventListener('deviceorientationabsolute', handleOrientation, true);
-      window.addEventListener('deviceorientation', handleOrientation, true);
+      // METHOD 3: Legacy deviceorientation events (iOS Safari, Firefox, older browsers)
+      function tryLegacyOrientation() {
+        let hasAbsolute = false;
+        
+        const handleOrientation = (e) => {
+          if (diagCompassRaw) {
+            const rawAlpha = e.alpha !== null && e.alpha !== undefined ? Math.round(e.alpha) : 'NULL';
+            const rawBeta = e.beta !== null && e.beta !== undefined ? Math.round(e.beta) : 'NULL';
+            const rawGamma = e.gamma !== null && e.gamma !== undefined ? Math.round(e.gamma) : 'NULL';
+            diagCompassRaw.textContent = `A:${rawAlpha}° B:${rawBeta}° G:${rawGamma}° T:${e.type === 'deviceorientationabsolute' ? 'ABS' : 'REL'}`;
+          }
 
-      if (diagCompass) {
-        diagCompass.textContent = "LISTENING (ACTIVE SENSORS)...";
+          if (e.type === 'deviceorientation' && hasAbsolute) return;
+
+          let heading = null;
+          if (e.webkitCompassHeading !== undefined) {
+            heading = e.webkitCompassHeading;
+          } else if (e.alpha !== null && e.alpha !== undefined) {
+            heading = (360 - e.alpha) % 360;
+          }
+
+          if (heading !== null) {
+            if (e.type === 'deviceorientationabsolute') hasAbsolute = true;
+            onCompassHeading(heading, hasAbsolute ? 'ABS-EVT' : 'REL-EVT');
+          }
+        };
+
+        window.addEventListener('deviceorientationabsolute', handleOrientation, true);
+        window.addEventListener('deviceorientation', handleOrientation, true);
+        compassBound = true;
+        if (diagCompass) diagCompass.textContent = "LEGACY EVENTS: LISTENING...";
+      }
+
+      // Execute sensor binding cascade: Generic Sensor API → Legacy Events
+      if (!tryGenericSensor()) {
+        if (!tryRelativeSensor()) {
+          tryLegacyOrientation();
+        }
       }
     }
 
