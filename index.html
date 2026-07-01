@@ -64,6 +64,8 @@
     /* Elegant bounce transition for the compass needle */
     #compass-needle {
       transition: transform 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+      transform-origin: center;
+      transform-box: fill-box;
     }
 
     /* Scrollbar styling for developer panel */
@@ -80,12 +82,14 @@
 <body class="h-full font-sans overflow-hidden flex flex-col justify-between">
 
   <!-- PERMISSION MODAL OVERLAY -->
-  <div id="permission-overlay" class="fixed inset-0 bg-black z-[100] flex flex-col items-center justify-center p-6 text-center space-y-8 hidden">
+  <div id="permission-overlay"
+    class="fixed inset-0 bg-black z-[100] flex flex-col items-center justify-center p-6 text-center space-y-8 hidden">
     <h2 class="text-xl font-bold tracking-widest uppercase font-sans">SENSOR ACCESS REQUIRED</h2>
     <p class="text-xs text-white/50 max-w-xs uppercase leading-relaxed font-mono">
       THIS URBAN ADVENTURE APP REQUIRES REAL-TIME GPS LOCATION AND DEVICE COMPASS SENSORS TO GUIDE YOU TO DESTINATIONS.
     </p>
-    <button onclick="grantAllPermissions()" class="bg-white text-black font-bold py-4 px-8 tracking-widest text-xs uppercase transition-all duration-200 active:scale-95 cursor-pointer">
+    <button onclick="grantAllPermissions()"
+      class="bg-white text-black font-bold py-4 px-8 tracking-widest text-xs uppercase transition-all duration-200 active:scale-95 cursor-pointer">
       GRANT SENSOR ACCESS
     </button>
   </div>
@@ -178,10 +182,8 @@
 
       <!-- Close Button (Takes you back to the seed phrase page) -->
       <div class="mt-6 w-full max-w-xs px-4">
-        <button 
-          onclick="lockEngine()" 
-          class="w-full border border-white text-white font-bold py-4 tracking-widest text-center uppercase transition-all duration-200 active:scale-95 hover:bg-white hover:text-black font-sans text-xs cursor-pointer"
-        >
+        <button onclick="lockEngine()"
+          class="w-full border border-white text-white font-bold py-4 tracking-widest text-center uppercase transition-all duration-200 active:scale-95 hover:bg-white hover:text-black font-sans text-xs cursor-pointer">
           CLOSE NAVIGATION
         </button>
       </div>
@@ -267,6 +269,9 @@
         <div>// HARDWARE SENSOR DIAGNOSTICS:</div>
         <div>GPS STATUS: <span id="diag-gps" class="text-white">NOT ACTIVE</span></div>
         <div>COMPASS STATUS: <span id="diag-compass" class="text-white">NOT ACTIVE</span></div>
+        <div class="pt-2 text-white/30 text-[9px] leading-normal uppercase">
+          TIP: IF STATUS IS STUCK, ENSURE SENSOR ACCESS IS ALLOWED (TAP LOCK ICON IN CHROME ADRESS BAR > SITE SETTINGS > MOTION SENSORS > ALLOW).
+        </div>
       </div>
 
     </div>
@@ -521,7 +526,7 @@
           (pos) => {
             state.realLat = pos.coords.latitude;
             state.realLng = pos.coords.longitude;
-            
+
             // Next, check iOS DeviceOrientation permission
             handleOrientationPermissionFlow();
           },
@@ -592,12 +597,22 @@
         const diagGps = document.getElementById('diag-gps');
         if (diagGps) diagGps.textContent = "NOT SUPPORTED";
       }
-
       // Compass Sensor Listeners
       const diagCompass = document.getElementById('diag-compass');
       if (diagCompass) diagCompass.textContent = "WAITING FOR SENSOR...";
 
+      let hasAbsolute = false;
+
       const handleOrientation = (e) => {
+        // If we already received an absolute event, ignore subsequent relative events
+        if (e.type === 'deviceorientation' && hasAbsolute) {
+          return;
+        }
+
+        if (e.type === 'deviceorientationabsolute') {
+          hasAbsolute = true;
+        }
+
         let heading = null;
         if (e.webkitCompassHeading !== undefined) {
           heading = e.webkitCompassHeading;
@@ -608,7 +623,8 @@
         if (heading !== null) {
           state.realHeading = heading;
           if (diagCompass) {
-            diagCompass.textContent = `ACTIVE (HEADING: ${Math.round(heading)}°)`;
+            const eventType = e.type === 'deviceorientationabsolute' ? 'ABS' : 'REL';
+            diagCompass.textContent = `ACTIVE (${eventType}: ${Math.round(heading)}°)`;
           }
           if (!state.useMock) {
             render();
@@ -616,14 +632,13 @@
         }
       };
 
-      if ('ondeviceorientationabsolute' in window) {
-        window.addEventListener('deviceorientationabsolute', handleOrientation, true);
-        if (diagCompass) diagCompass.textContent = "LISTENING (ABSOLUTE)...";
-      } else if ('ondeviceorientation' in window) {
-        window.addEventListener('deviceorientation', handleOrientation, true);
-        if (diagCompass) diagCompass.textContent = "LISTENING (RELATIVE)...";
-      } else {
-        if (diagCompass) diagCompass.textContent = "NOT SUPPORTED";
+      // Always register both event listeners to bypass browser-specific detection bugs.
+      // The hasAbsolute filter will discard relative data if absolute is supported.
+      window.addEventListener('deviceorientationabsolute', handleOrientation, true);
+      window.addEventListener('deviceorientation', handleOrientation, true);
+
+      if (diagCompass) {
+        diagCompass.textContent = "LISTENING (ACTIVE SENSORS)...";
       }
     }
 
@@ -676,7 +691,7 @@
         state.playerLng = 35.2650;
         state.deviceHeading = 0;
         userTypedDraft = "";
-        
+
         localStorage.removeItem('permissions_requested');
 
         document.getElementById('seed-phrase-input').value = "";
